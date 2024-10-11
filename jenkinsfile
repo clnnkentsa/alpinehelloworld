@@ -1,0 +1,69 @@
+ environment {
+        HEROKU_API_KEY = credentials('heroku_api_key')
+        IMAGE_NAME = "alpinehelloworld"                /*alpinehelloworld par exemple*/
+        IMAGE_TAG = "latest"                      /*tag docker, par exemple latest*/
+        STAGING = "${PARAM_APP_NAME}-staging"
+        PRODUCTION = "${PARAM_APP_NAME}-prod"
+     
+agent none 
+stages {
+   stage('build image') {
+       agent any
+       steps {
+           script {
+              sh 'docker build -t $IMAGE_NAME:$IMAGE_TAG .'
+        }
+    }
+}
+
+    stage ('Run container based on builded image'){
+      agent any
+      steps {
+        script{
+            sh '''
+              echo "cleaning existing container if exist"
+              docker ps -a | grep -i $IMAGE_NAME && docker rm -f $IMAGE_NAME 
+              docker run --name $IMAGE_NAME -d -p $APP-EXPOSED_PORT:$INTERNAL_PORT -e PORT=$INTERNAL_PORT ${DOCKERHUB_ID}/$IMAGE_NAME:$IMAGE_TAG
+              sleep 5
+                      }
+         }
+       }
+    }
+
+    stage ('Test image') {
+     steps {
+      script {    
+         sh '''
+            curl -v 122.17.0.1:$APP_EXPOSED_PORT | grep -q "Hello world!"
+            ...
+          }
+        }
+    }
+    stage ('Clean container') {
+      steps {
+        script {
+          sh '''
+            docker stop $IMAGE_NAME
+            docker rm $IMAGE_NAME
+          '''
+            }
+        }
+    }
+
+    stage ('Push Image in production and deploy it') {
+      when {
+           expression { GIT_BRANCH == 'origin/main' }
+      }
+      agent any
+      environment {
+                   HEROKU_API_KEY = credentials('heroku_api_key')
+                   heroku create $STAGING || echo "prject already exist"
+                   heroku container:push -a $STAGING web
+                   heroku container:release -a $STAGING web
+          }
+
+    }
+}
+
+
+
